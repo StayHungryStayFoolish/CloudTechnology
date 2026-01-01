@@ -3045,6 +3045,62 @@ Alignment（对齐）- 目标/阶段
 > - 如果 Reference 与 Policy 差距过大，可能导致训练不稳定
 > - Reference Model 的输出分布会影响模型最终行为（如输出长度、风格）
 
+##### PPO vs DPO 底层机制深度解析
+
+为什么 PPO 需要 4 个模型而 DPO 只需要 2 个？核心在于 **DPO 通过数学变换，把"奖励建模"和"策略优化"合并成了一个步骤**。
+
+###### PPO 的 4 个模型（Actor-Critic 架构）
+
+| 模型 | 符号 | 角色 | 作用 | 状态 |
+|------|------|------|------|------|
+| **Policy Model** | $\pi_\theta$ | 主角 | 输入 Prompt，输出回答，是优化目标 | 训练中 |
+| **Reference Model** | $\pi_{ref}$ | 约束者 | 计算 KL 散度，防止 Policy 偏离太远 | 冻结 |
+| **Critic Model** | $V_\phi$ | 评论家 | 预测期望未来回报，计算优势函数 $A$，降低方差 | 训练中 |
+| **Reward Model** | $r_\psi$ | 裁判 | 给完整回答打分，定义什么是"好" | 冻结 |
+
+###### DPO 的 2 个模型
+
+| 模型 | 符号 | 角色 | 作用 | 状态 |
+|------|------|------|------|------|
+| **Policy Model** | $\pi_\theta$ | 主角 | 输入 Prompt，输出回答 | 训练中 |
+| **Reference Model** | $\pi_{ref}$ | 基准 | 提供基准概率，计算概率比 | 冻结 |
+
+###### 数学原理：DPO 如何消除 Reward 和 Critic
+
+**PPO 目标函数**：
+$$\max_{\pi_\theta} \mathbb{E} [r(x, y) - \beta \log \frac{\pi_\theta(y|x)}{\pi_{ref}(y|x)}]$$
+
+**DPO 核心发现**（斯坦福团队）：上述目标的最优解存在解析形式，奖励可用策略比值表示：
+$$r(x, y) = \beta \log \frac{\pi^*(y|x)}{\pi_{ref}(y|x)} + Z(x)$$
+
+**关键洞察**：既然奖励可以用策略表示，就不需要单独训练 Reward Model！
+
+代入 Bradley-Terry 偏好模型，消掉 $r(x,y)$，得到 **DPO 损失函数**：
+$$\mathcal{L}_{DPO} = - \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\pi_{ref}(y_w|x)} - \beta \log \frac{\pi_\theta(y_l|x)}{\pi_{ref}(y_l|x)} \right)$$
+
+- $y_w$：Chosen（胜出）回答，$y_l$：Rejected（失败）回答
+
+**直观理解**：增加胜者概率比，降低败者概率比，奖励由概率比值隐式决定。
+
+###### 训练流程对比
+
+| 步骤 | PPO（在线 RL） | DPO（离线监督） |
+|------|----------------|-----------------|
+| 1 | Policy 生成回答 | 加载 (prompt, chosen, rejected) |
+| 2 | Reward Model 打分 | Policy/Ref 计算 log 概率 |
+| 3 | Critic 估算价值，计算优势 | 代入 DPO 公式算 Loss |
+| 4 | Policy + Critic 更新 | 反向传播更新 Policy |
+
+###### 核心差异总结
+
+| 特性 | PPO | DPO |
+|------|-----|-----|
+| **核心逻辑** | 训练裁判指挥模型 | 直接把赢的概率调高 |
+| **理论基础** | 策略梯度定理 | 奖励-策略对偶性 |
+| **稳定性** | 差（超参敏感） | 好（类似 SFT） |
+
+> **DPO 本质**：既然最优策略和奖励函数是一体两面，直接优化策略本身，就等于在优化奖励。
+
 ##### 垂直领域模型评测体系 (Vertical Domain Evaluation)
 
 在垂直领域（如医疗、法律、金融），仅仅观察 Training Loss 下降是远远不够的。**“如何证明模型变强了，且没有变傻（灾难性遗忘）？”** 是交付模型前必须回答的问题。
@@ -7500,89 +7556,7 @@ trainer.train()
 
 > **DeepSeek R1 的成功**: GRPO 是 DeepSeek R1 训练的核心算法，证明了无需 Critic 也能训练出强大的推理模型。
 
----
-
-#### PPO vs DPO 底层机制深度解析
-
-为什么 PPO 需要 4 个模型而 DPO 只需要 2 个？核心在于 **DPO 通过数学变换，把"奖励建模"和"策略优化"合并成了一个步骤**。
-
-##### PPO 的 4 个模型详解
-
-PPO 是典型的 **Actor-Critic** 架构，把"生成动作"和"评价动作"拆分开：
-
-| 模型 | 数学符号 | 角色 | 作用 | 状态 |
-|------|----------|------|------|------|
-| **Policy Model** | $\pi_\theta$ | 主角 | 输入 Prompt，输出回答，是优化目标 | 训练中 |
-| **Reference Model** | $\pi_{ref}$ | 约束者 | 计算 KL 散度，防止 Policy 偏离太远 | 冻结 |
-| **Critic Model** | $V_\phi$ | 评论家 | 预测期望未来回报，计算优势函数 $A$，降低方差 | 训练中 |
-| **Reward Model** | $r_\psi$ | 裁判 | 给完整回答打分，定义什么是"好" | 冻结 |
-
-##### DPO 的 2 个模型详解
-
-DPO 绕过 RL 过程，直接优化策略：
-
-| 模型 | 数学符号 | 角色 | 作用 | 状态 |
-|------|----------|------|------|------|
-| **Policy Model** | $\pi_\theta$ | 主角 | 输入 Prompt，输出回答 | 训练中 |
-| **Reference Model** | $\pi_{ref}$ | 基准 | 提供基准概率，计算概率比 | 冻结 |
-
-##### 数学原理：DPO 如何消除 Reward 和 Critic
-
-**PPO 的目标函数**：
-$$\max_{\pi_\theta} \mathbb{E} [r(x, y) - \beta \log \frac{\pi_\theta(y|x)}{\pi_{ref}(y|x)}]$$
-
-- $r(x, y)$：奖励模型分数
-- KL 惩罚项：约束不偏离 Reference 太远
-
-**DPO 的核心发现**（斯坦福团队）：
-
-上述目标的**最优解**存在解析形式，奖励 $r$ 可以用策略比值表示：
-$$r(x, y) = \beta \log \frac{\pi^*(y|x)}{\pi_{ref}(y|x)} + Z(x)$$
-
-**关键洞察**：既然奖励可以用策略表示，就不需要单独训练 Reward Model！
-
-将此关系代入 Bradley-Terry 偏好模型，消掉 $r(x,y)$，得到 **DPO 损失函数**：
-$$\mathcal{L}_{DPO} = - \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\pi_{ref}(y_w|x)} - \beta \log \frac{\pi_\theta(y_l|x)}{\pi_{ref}(y_l|x)} \right)$$
-
-- $y_w$：Chosen（胜出）回答
-- $y_l$：Rejected（失败）回答
-
-**直观理解**：
-1. 增加胜者概率比：让 $\pi_\theta$ 生成 $y_w$ 的概率相对 $\pi_{ref}$ 变高
-2. 降低败者概率比：让 $\pi_\theta$ 生成 $y_l$ 的概率相对 $\pi_{ref}$ 变低
-3. 隐式奖励：由 Policy 和 Reference 的概率比值动态决定
-
-##### 训练流程对比
-
-**PPO 流程（在线 RL，复杂）**：
-```
-循环：
-1. Rollout：Policy Model 生成回答 y
-2. Evaluation：Reward Model 给 y 打分 r
-3. Advantage：Critic Model 估算价值 V，计算优势 A = r - V
-4. Update：Policy 和 Critic 根据 A 更新参数
-```
-
-**DPO 流程（离线监督，简单）**：
-```
-1. 加载标注好的 (prompt, chosen, rejected) 数据
-2. Forward：Policy 和 Reference 分别计算 chosen/rejected 的 log 概率
-3. Loss：代入 DPO 公式计算损失
-4. Backward：反向传播更新 Policy
-```
-
-##### 核心差异总结
-
-| 特性 | PPO (RLHF) | DPO |
-|------|------------|-----|
-| **核心逻辑** | 训练裁判，让裁判指挥模型 | 直接看比分，把赢的概率调高 |
-| **所需模型** | 4 个 | 2 个 |
-| **优化方式** | 在线强化学习 | 离线监督学习 |
-| **稳定性** | 差（超参敏感，易崩） | 好（类似 SFT） |
-| **理论基础** | 策略梯度定理 | 奖励-策略对偶性 |
-| **显存需求** | ~24B~28B（7B 模型） | ~14B（7B 模型） |
-
-> **DPO 的本质**：既然最优策略和奖励函数是一体两面，直接优化策略本身，就等于在优化奖励。
+> 📖 **PPO vs DPO 底层机制深度解析**：详见上文 [PPO vs DPO 底层机制深度解析](#ppo-vs-dpo-底层机制深度解析) 章节，包含 4 模型 vs 2 模型的数学原理和训练流程对比。
 
 ---
 
