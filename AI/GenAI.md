@@ -2832,6 +2832,7 @@ RLHF = Reinforcement Learning from Human Feedback
 ---
 
 ### 6. 学习范式总结
+
 #### 学习范式综合对比
 
 | 维度 | 监督学习 | 无监督学习 | 自监督学习 | 半监督学习 | 强化学习 |
@@ -2873,6 +2874,7 @@ RLHF = Reinforcement Learning from Human Feedback
 ---
 
 ### 7. LLM 训练中的学习范式组合
+
 #### LLM 训练流程中的学习范式
 
 现代大语言模型**不是单一使用某种学习范式**，而是**组合多种学习范式**：
@@ -2950,6 +2952,7 @@ RLHF = Reinforcement Learning from Human Feedback
 > - **DPO**：需加载 Policy + Reference Model，可通过 Reference Offloading 或 LoRA-DPO 降低显存
 > - **PPO (RLHF)**：需加载 Policy + Ref + Reward + Critic（约 4 个模型），实际显存取决于实现（是否共享权重、是否 Offload、是否串行复用）
 > - **ORPO**：2024 新方法，无需 Reference Model，显存需求同 SFT，适合资源受限场景
+> - 📖 **详细原理**：各模型的作用和底层机制详见下文 [对齐 Alignment](#对齐-alignment) 章节
 
 **CPT vs Domain Fine-tuning（领域微调）**：
 - **CPT（阶段 2）**：用无标注文本"读书"学知识 → 学会领域词汇和概念
@@ -3020,6 +3023,8 @@ Alignment（对齐）- 目标/阶段
     │
     └── KTO (2024)：无需成对数据，只需点赞/点踩数据
         └─ 优点：数据收集成本低
+
+📖 各模型（Policy/Reference/Reward/Critic）的详细作用和底层机制，详见 [对齐 Alignment](#对齐-alignment) 章节。
 ```
 
 **主流算法选择指南**：
