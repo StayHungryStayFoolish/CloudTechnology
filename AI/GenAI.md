@@ -7591,7 +7591,7 @@ trainer = DPOTrainer(
 trainer.train()
 ```
 
-> **精度注意**：Ref Model 和 Policy Model 必须使用相同精度（如都用 BF16），否则 log_ratio 计算误差可能导致训练不稳定或发散。
+> **精度注意**：Ref Model 和 Policy Model 必须使用相同精度（如都用 BF16）和相同的 Tokenizer 设置，否则 log_ratio 计算误差可能导致训练不稳定或发散。
 
 ---
 
@@ -7699,6 +7699,8 @@ config = ORPOConfig(
     gradient_accumulation_steps=4,
     learning_rate=5e-6,
     bf16=True,
+    max_length=1024,         # 总长度（显存敏感）
+    max_prompt_length=512,   # 提示词长度限制
 )
 
 trainer = ORPOTrainer(
