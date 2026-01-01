@@ -2922,8 +2922,8 @@ RLHF = Reinforcement Learning from Human Feedback
 |                     | LoRA（轻量适配） | 5B - 20B Tokens   | 8-16× H100/910B   | LoRA + 梯度累积               | $2K - $10K   | 天级    | Weak Domain Base   |
 | **3. SFT**          | FFT（复杂任务）  | 50K - 500K 条      | 16-64× H100/910B  | FFT + ZeRO-3              | $5K - $20K   | 天级    | Strong Instruct    |
 |                     | QLoRA（高效）  | 5K - 50K 条        | 4-8× H100/910B    | QLoRA + FlashAttn         | $500 - $3K   | 小时/天级 | Standard Instruct  |
-| **4. Alignment** | PPO (RLHF) | 50K+ Pairs | 16-64× H100/910B | 需 4 个模型 | $10K+ | 周级 | SOTA Chat Model |
-|                     | DPO/ORPO | 10K - 100K Pairs | 4-16× H100/910B | 需 2 个模型 + LoRA | $1K - $10K | 天级 | Standard Chat Model |
+| **4. Alignment** | PPO (RLHF) | 50K+ Pairs | 16-64× H100/910B | 4 模型（Policy/Ref/Reward/Critic） | $10K+ | 周级 | SOTA Chat Model |
+|                     | DPO/ORPO | 10K - 100K Pairs | 4-16× H100/910B | 2 模型（Policy/Ref）+ LoRA | $1K - $10K | 天级 | Standard Chat Model |
 
 > **SFT 显存优化技术说明**：
 > - **ZeRO/FSDP**：主要用于全参微调（FFT）或大规模并行场景
@@ -3011,11 +3011,11 @@ Alignment（对齐）- 目标/阶段
 ├── 基于强化学习 (RL-based)
 │   └── PPO (RLHF)：训练 Reward Model → 强化学习优化
 │       ├─ 优点：效果上限高，适合复杂推理/Coding
-│       └─ 缺点：需 4 个模型，极不稳定，调参困难
+│       └─ 缺点：需 4 个模型（Policy/Ref/Reward/Critic），极不稳定，调参困难
 │
 └── 直接对齐 (Direct Alignment) - 监督学习框架
     ├── DPO：跳过 Reward Model，直接用偏好对优化
-    │   ├─ 优点：简单稳定，只需 2 个模型
+    │   ├─ 优点：简单稳定，只需 2 个模型（Policy/Ref）
     │   └─ 缺点：对分布偏移敏感，有长度偏置风险
     │
     ├── ORPO (2024)：SFT 与对齐合并，无需 Reference Model
@@ -3023,9 +3023,9 @@ Alignment（对齐）- 目标/阶段
     │
     └── KTO (2024)：无需成对数据，只需点赞/点踩数据
         └─ 优点：数据收集成本低
-
-📖 各模型（Policy/Reference/Reward/Critic）的详细作用和底层机制，详见 [对齐 Alignment](#对齐-alignment) 章节。
 ```
+
+> 📖 各模型（Policy/Reference/Reward/Critic）的详细作用和底层机制，详见下文 [PPO vs DPO 底层机制深度解析](#ppo-vs-dpo-底层机制深度解析) 章节。
 
 **主流算法选择指南**：
 
@@ -3095,9 +3095,14 @@ $$\mathcal{L}_{DPO} = - \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\
 
 | 特性 | PPO | DPO |
 |------|-----|-----|
+| **所需模型** | 4 个（Policy/Ref/Reward/Critic） | 2 个（Policy/Ref） |
+| **优化方式** | 在线强化学习 | 离线监督学习 |
+| **显存需求** | ~24B~28B（7B 模型） | ~14B（7B 模型） |
 | **核心逻辑** | 训练裁判指挥模型 | 直接把赢的概率调高 |
 | **理论基础** | 策略梯度定理 | 奖励-策略对偶性 |
 | **稳定性** | 差（超参敏感） | 好（类似 SFT） |
+
+> **显存痛点**：PPO 需同时加载 4 个 LLM，在 70B 模型训练中是显存噩梦；DPO 的 Reference Model 可通过 CPU Offload 或 LoRA 共享权重进一步压缩。
 
 > **DPO 本质**：既然最优策略和奖励函数是一体两面，直接优化策略本身，就等于在优化奖励。
 
@@ -3408,6 +3413,8 @@ response = aligned_model.generate(prompt)
 - SFT/任务微调/领域微调 → 回答"为什么微调"（目的）
 - FFT/PEFT → 回答"怎么微调"（方式）
 - RLHF/DPO → 回答"阶段 4 用什么方法"（具体实现）
+
+> 📖 **PPO 4 模型 vs DPO 2 模型的底层原理**：详见上文 [PPO vs DPO 底层机制深度解析](#ppo-vs-dpo-底层机制深度解析) 章节。
 
 ---
 
