@@ -3080,27 +3080,33 @@ $$\mathcal{L}_{DPO} = - \log \sigma \left( \beta \log \frac{\pi_\theta(y_w|x)}{\
 
 - $y_w$：Chosen（胜出）回答，$y_l$：Rejected（失败）回答
 
-**直观理解**：增加胜者概率比，降低败者概率比，奖励由概率比值隐式决定。
+**直观理解 DPO 损失函数**：
+1. **增加胜者概率比**：强迫 $\pi_\theta$ 生成 $y_w$ 的概率**相对于** $\pi_{ref}$ 变高
+2. **降低败者概率比**：强迫 $\pi_\theta$ 生成 $y_l$ 的概率**相对于** $\pi_{ref}$ 变低
+3. **隐式奖励**：不需要显式奖励模型，"奖励"由 Policy 和 Reference 的概率比值动态决定
 
 ###### 训练流程对比
 
-| 步骤 | PPO（在线 RL） | DPO（离线监督） |
+| 步骤 | PPO（Online RL） | DPO（Offline Supervised） |
 |------|----------------|-----------------|
-| 1 | Policy 生成回答 | 加载 (prompt, chosen, rejected) |
-| 2 | Reward Model 打分 | Policy/Ref 计算 log 概率 |
-| 3 | Critic 估算价值，计算优势 | 代入 DPO 公式算 Loss |
-| 4 | Policy + Critic 更新 | 反向传播更新 Policy |
+| 1 | **Rollout**：Policy 生成回答 $y$ | **Data Loading**：加载 $(x, y_w, y_l)$ |
+| 2 | **Evaluation**：Reward Model 打分 $r$ | **Forward Pass**：Policy/Ref 算 log 概率 |
+| 3 | **Advantage Estimation**：Critic 估算 $V$，计算优势 $A$ | **Loss Calculation**：代入 DPO 公式 |
+| 4 | **Update**：Policy + Critic 更新（PPO 截断技巧） | **Backward Pass**：反向传播更新 Policy |
+
+> **PPO 缺点**：需要在循环里不断生成数据（Rollout），非常慢，且对超参数极度敏感。
+> **DPO 优点**：像普通的监督学习（SFT）一样稳定，不需要采样生成、不需要打分、不需要估值。
 
 ###### 核心差异总结
 
 | 特性 | PPO | DPO |
 |------|-----|-----|
 | **所需模型** | 4 个（Policy/Ref/Reward/Critic） | 2 个（Policy/Ref） |
-| **优化方式** | 在线强化学习 | 离线监督学习 |
+| **优化方式** | 在线强化学习（Online RL） | 离线监督学习（Offline Supervised） |
 | **显存需求** | ~24B~28B（7B 模型） | ~14B（7B 模型） |
-| **核心逻辑** | 训练裁判指挥模型 | 直接把赢的概率调高 |
-| **理论基础** | 策略梯度定理 | 奖励-策略对偶性 |
-| **稳定性** | 差（超参敏感） | 好（类似 SFT） |
+| **核心逻辑** | 训练个裁判，让裁判指挥模型走 | 直接看比分，把赢的概率调高 |
+| **理论基础** | 策略梯度定理（Policy Gradient） | 奖励-策略对偶性（Duality） |
+| **稳定性** | 差（超参敏感，易崩） | 好（类似 SFT，稳定收敛） |
 
 > **显存痛点**：PPO 需同时加载 4 个 LLM，在 70B 模型训练中是显存噩梦；DPO 的 Reference Model 可通过 CPU Offload 或 LoRA 共享权重进一步压缩。
 
